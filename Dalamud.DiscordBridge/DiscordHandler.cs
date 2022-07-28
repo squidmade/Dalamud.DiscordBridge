@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Linq;
+using System.Net.Sockets;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Dalamud.DiscordBridge.Model;
 using Dalamud.DiscordBridge.XivApi;
 using Dalamud.Game.Text;
 using Dalamud.Logging;
+using Dalamud.Utility;
 using Discord;
 using Discord.Net.Providers.WS4Net;
 using Discord.Webhook;
@@ -20,6 +24,8 @@ namespace Dalamud.DiscordBridge
 {
     public class DiscordHandler : IDisposable
     {
+        private readonly DuplicateFilter duplicateFilter;
+        
         private readonly DiscordSocketClient socketClient;
         private readonly SpecialCharsHandler specialChars;
 
@@ -104,6 +110,8 @@ namespace Dalamud.DiscordBridge
             });
             this.socketClient.Ready += SocketClientOnReady;
             this.socketClient.MessageReceived += SocketClientOnMessageReceived;
+            
+            this.duplicateFilter = new DuplicateFilter(this.plugin, this.socketClient);
         }
 
         public async Task Start()
@@ -134,12 +142,14 @@ namespace Dalamud.DiscordBridge
             PluginLog.Verbose("DiscordHandler START!!");
         }
 
-        private async Task SocketClientOnReady()
+        private Task SocketClientOnReady()
         {
             this.State = DiscordState.Ready;
-            await this.specialChars.TryFindEmote(this.socketClient);
+            this.specialChars.TryFindEmote(this.socketClient);
 
             PluginLog.Verbose("DiscordHandler READY!!");
+            
+            return Task.CompletedTask;
         }
 
         private async Task SocketClientOnMessageReceived(SocketMessage message)
@@ -946,7 +956,7 @@ namespace Dalamud.DiscordBridge
                     
                     continue;
                 }
-
+                
                 var messageContent = chatType != XivChatTypeExtensions.IpcChatType ? $"{prefix}**[{chatTypeText}]** {message}" : $"{prefix} {message}";
 
 
@@ -960,28 +970,10 @@ namespace Dalamud.DiscordBridge
                 {
                     var webhookClient = await GetOrCreateWebhookClient(socketChannel);
 
-                    // check for duplicates before sending
-                    // straight up copied from the previous bot, but I have no way to test this myself.
-                    var recentMessages = (socketChannel as SocketTextChannel).GetCachedMessages();
-                    var recentMsg = recentMessages.FirstOrDefault(msg => msg.Content == messageContent);
-
-                    if (this.plugin.Config.DuplicateCheckMS > 0 && recentMsg != null)
+                    if (duplicateFilter.CheckAlreadySent(socketChannel, slug: chatTypeText, displayName, chatText: message))
                     {
-                        long msgDiff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - recentMsg.Timestamp.ToUnixTimeMilliseconds();
-
-                        if (msgDiff < this.plugin.Config.DuplicateCheckMS)
-                        {
-                            PluginLog.Log($"[IN TESTING]\n DIFF:{msgDiff}ms Skipping duplicate message: {messageContent}");
-                            return;
-                        }
-
+                        continue;
                     }
-
-                    // the message to a list of recently sent messages. 
-                    // If someone else sent the same thing at the same time
-                    // both will need to be checked and the earlier timestamp kept
-                    // while the newer one is removed
-                    // refer to https://discord.com/channels/581875019861328007/684745859497590843/791207648619266060
 
                     await webhookClient.SendMessageAsync(
                         messageContent, username: displayName, avatarUrl: avatarUrl,

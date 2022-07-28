@@ -38,7 +38,7 @@ namespace Dalamud.DiscordBridge
             return returnString.ToString();
         }
 
-        public async Task TryFindEmote(DiscordSocketClient socketClient)
+        public void TryFindEmote(DiscordSocketClient socketClient)
         {
             foreach (var guild in socketClient.Guilds)
             {
