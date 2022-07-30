@@ -122,6 +122,11 @@ namespace Dalamud.DiscordBridge
             //return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - message.Timestamp.ToUnixTimeMilliseconds();
         }
 
+        private static long DifferenceMs(DateTimeOffset left, DateTimeOffset right)
+        {
+            return left.ToUnixTimeMilliseconds() - right.ToUnixTimeMilliseconds();
+        }
+
         private async Task DeleteMostRecent(SocketMessage recent, SocketMessage other)
         {
             if (recent.Timestamp > other.Timestamp)
@@ -171,15 +176,17 @@ namespace Dalamud.DiscordBridge
             const bool bothWebhook = true;
 
             bool sameUser = recent.Author.Username == other.Author.Username;
+            LogDedupe($"USERS: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
             //bool sameUser = true;
-            
+
+            bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < 5000;
 
             bool differentId = recent.Id != other.Id;
 
             string leftText = GetText(recent.Content);
             string rightText = GetText(other.Content);
 
-            return notEmptyString && bothWebhook && sameUser && differentId && (leftText == rightText);
+            return notEmptyString && bothWebhook && sameUser && withinTime && differentId && (leftText == rightText);
         }
 
         private static string GetText(string recentContent)
