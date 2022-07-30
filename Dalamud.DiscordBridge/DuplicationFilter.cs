@@ -26,7 +26,7 @@ namespace Dalamud.DiscordBridge
         {
             LogDedupe($"Add message: {message.Author.Username} {message.Content}");
 
-            if (!recentMessages.Contains(message))
+            if (recentMessages.All(m => m.Id != message.Id))
             {
 
                 recentMessages.Add(message);                
@@ -224,6 +224,7 @@ namespace Dalamud.DiscordBridge
         private const string GroupSlug = "slug"; 
         private const string GroupChatText = "chatText"; 
         private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)(?'{GroupSlug}'\[.+\]) (?'{GroupChatText}'.+)");
+        // (?'GroupPrefix'.*)\*?\*?\[(?'GroupSlug'.+)\]\*?\*? (?'GroupChatText'.+)
 
         private DateTimeOffset startTime = DateTimeOffset.Now;
         
