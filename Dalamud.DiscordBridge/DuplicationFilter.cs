@@ -14,10 +14,9 @@ namespace Dalamud.DiscordBridge
 {
     public class DuplicateFilter
     {
-        public DuplicateFilter()
-        {
-            DedupeTimer.Start();
-        }
+        // public DuplicateFilter()
+        // {
+        // }
         
         #region Methods
 
@@ -25,9 +24,18 @@ namespace Dalamud.DiscordBridge
         
         public void Add(SocketMessage message)
         {
-            LogDedupe($"Adding message: {message.Author.Username} {message.Content}");
+            LogDedupe($"Add message: {message.Author.Username} {message.Content}");
+
+            if (!recentMessages.Contains(message))
+            {
+
+                recentMessages.Add(message);                
+            }
+            else
+            {
+                LogDedupe("NOT ADDING");
+            }
             
-            recentMessages.Add(message);
         }
         
         public bool IsRecentlySent(string displayName, string chatText)
@@ -37,7 +45,6 @@ namespace Dalamud.DiscordBridge
             var recentMsg = recentMessages.FirstOrDefault(msg =>
                 IsDuplicate(msg.Author.Username, msg.Content, displayName, chatText));
 
-                
             //if (this.plugin.Config.DuplicateCheckMS > 0 && recentMsg != null)
             if (recentMsg != null)
             {
@@ -64,42 +71,49 @@ namespace Dalamud.DiscordBridge
 
         public async Task Dedupe()
         {
-            //GetElapsedMs(StartTime);
-            if (DedupeTimer.ElapsedMilliseconds < 500)
-            {
-                //LogDedupe("No-op");
-                return;
-            }
-            DedupeTimer.Restart();
-
             var recentMessages = this.recentMessages.Where(m => GetElapsedMs(m) < 10000);
             var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
             var content = socketMessages.Select(m => m.Content);
 
             LogDedupe("Dedupe cached messages");
             LogDedupe($"- Total: {this.recentMessages.Count()}");
+            if (this.recentMessages.Count() == 0) return;
             LogDedupe($"- Recent: {socketMessages.Count()}");
-            LogDedupe($"- Content: {string.Join(", ", content)}");
 
-            for (var i = 0; i < socketMessages.Length; i++)
+            var deletedMessages = new List<SocketMessage>();
+            if (socketMessages.Count() > 0)
             {
-                var recent = socketMessages[i];
+                LogDedupe($"- Content: {string.Join(", ", content)}");
 
-                for (var j = 0; j < socketMessages.Length; j++)
+            
+                for (var i = 0; i < socketMessages.Length; i++)
                 {
-                    if (i != j)
-                    {
-                        var other = socketMessages[j];
+                    var recent = socketMessages[i];
 
-                        if (IsDuplicate(recent, other))
+                    for (var j = 0; j < socketMessages.Length; j++)
+                    {
+                        if (i != j)
                         {
-                            await DeleteMostRecent(recent, other);
+                            var other = socketMessages[j];
+
+                            if (IsDuplicate(recent, other))
+                            {
+                                bool wasDeleted = await DeleteMostRecent(recent, other);
+
+                                if (wasDeleted)
+                                {
+                                    deletedMessages.Add(recent);
+                                    deletedMessages.Add(other);
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            this.recentMessages = new List<SocketMessage>(recentMessages);
+            this.recentMessages = new List<SocketMessage>(recentMessages.Except(deletedMessages));
+            LogDedupe($"- Deleted Count: {deletedMessages.Count()}");
+            LogDedupe($"- Final Total: {this.recentMessages.Count()}");
         }
 
         #endregion
@@ -119,7 +133,6 @@ namespace Dalamud.DiscordBridge
         private static long GetElapsedMs(SocketMessage message)
         {
             return GetElapsedMs(message.Timestamp);
-            //return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - message.Timestamp.ToUnixTimeMilliseconds();
         }
 
         private static long DifferenceMs(DateTimeOffset left, DateTimeOffset right)
@@ -127,19 +140,19 @@ namespace Dalamud.DiscordBridge
             return GetElapsedMs(left) - GetElapsedMs(right);
         }
 
-        private async Task DeleteMostRecent(SocketMessage recent, SocketMessage other)
+        private async Task<bool> DeleteMostRecent(SocketMessage recent, SocketMessage other)
         {
             if (recent.Timestamp > other.Timestamp)
             {
-                await TryDeleteAsync(recent);
+                return await TryDeleteAsync(recent);
             }
             else
             {
-                await TryDeleteAsync(other);
+                return await TryDeleteAsync(other);
             }
         }
 
-        private static async Task TryDeleteAsync(SocketMessage message)
+        private static async Task<bool> TryDeleteAsync(SocketMessage message)
         {
             LogDedupe($"Delete: ({message.Author.Username}) {message.Content}");
 
@@ -152,11 +165,14 @@ namespace Dalamud.DiscordBridge
             try
             {
                 await message.DeleteAsync();
+                return true;
             }
             catch (Discord.Net.HttpException)
             {
                 LogDedupe($"Message could not be deleted");
             }
+
+            return false;
         }
         
         private bool IsDuplicate(SocketMessage recent, SocketMessage other)
@@ -209,8 +225,8 @@ namespace Dalamud.DiscordBridge
         private const string GroupChatText = "chatText"; 
         private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)(?'{GroupSlug}'\[.+\]) (?'{GroupChatText}'.+)");
 
-        private static readonly Stopwatch DedupeTimer = new();
-
+        private DateTimeOffset startTime = DateTimeOffset.Now;
+        
         #endregion
     }
 }
