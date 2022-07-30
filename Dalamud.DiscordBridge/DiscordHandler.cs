@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Dalamud.DiscordBridge.Model;
 using Dalamud.DiscordBridge.XivApi;
@@ -146,6 +148,8 @@ namespace Dalamud.DiscordBridge
 
         private async Task SocketClientOnMessageReceived(SocketMessage message)
         {
+            LogDedupe("Message received");
+            
             if (message.Channel is SocketChannel socketChannel)
             {
                 await Dedupe(socketChannel);
@@ -872,19 +876,20 @@ namespace Dalamud.DiscordBridge
                     long msgDiff = GetElapsedMs(recentMsg);
                     
                     //if (msgDiff < this.plugin.Config.DuplicateCheckMS)
-                    if (msgDiff < 0)
+                    if (msgDiff < 5000)
                     {
-                        PluginLog.Log($"[IN TESTING]\n DIFF:{msgDiff}ms Skipping duplicate message: {messageContent}");
+                        LogDedupe($"DIFF:{msgDiff}ms Skipping duplicate message: {messageContent}");
                         return;
                     }
                         
                 }
-
+                
                 await webhookClient.SendMessageAsync(
                     messageContent,username: displayName, avatarUrl: avatarUrl, 
                     allowedMentions: new AllowedMentions(AllowedMentionTypes.Roles | AllowedMentionTypes.Users | AllowedMentionTypes.None)
                 );
-
+                
+                LogDedupe($"Sent: {displayName}, {messageContent}");
 
                 // await Dedupe(socketChannel);
 
@@ -896,8 +901,25 @@ namespace Dalamud.DiscordBridge
             }
         }
 
+        public static DateTimeOffset StartTime = DateTimeOffset.Now;
+        public static Stopwatch DedupeTimer = new Stopwatch();
+
+        private static void LogDedupe(string message)
+        {
+            PluginLog.LogDebug($"[DEDUPE] {message}");
+        }
+        
         private async Task Dedupe(SocketChannel socketChannel)
         {
+            //GetElapsedMs(StartTime);
+            if (DedupeTimer.ElapsedMilliseconds < 5000)
+            {
+                if (!DedupeTimer.IsRunning) DedupeTimer.Start();
+                //LogDedupe("No-op");
+                return;
+            }
+            DedupeTimer.Restart();
+            
             if (socketChannel is not SocketTextChannel socketTextChannel)
             {
                 return;
@@ -909,9 +931,10 @@ namespace Dalamud.DiscordBridge
             var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
             var content = socketMessages.Select(m => m.Content);
 
-            PluginLog.LogInformation($"Total: {cachedMessages.Count()}");
-            PluginLog.LogInformation($"Recent: {socketMessages.Count()}");
-            PluginLog.LogInformation($"Content: {string.Join(", ", content)}");
+            LogDedupe("Dedupe cached messages");
+            LogDedupe($"- Total: {cachedMessages.Count()}");
+            LogDedupe($"- Recent: {socketMessages.Count()}");
+            LogDedupe($"- Content: {string.Join(", ", content)}");
 
             for (var i = 0; i < socketMessages.Length; i++)
             {
@@ -932,9 +955,15 @@ namespace Dalamud.DiscordBridge
             }
         }
 
+        private static long GetElapsedMs(DateTimeOffset timestamp)
+        {
+            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - timestamp.ToUnixTimeMilliseconds();
+        }
+
         private static long GetElapsedMs(SocketMessage message)
         {
-            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - message.Timestamp.ToUnixTimeMilliseconds();
+            return GetElapsedMs(message.Timestamp);
+            //return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - message.Timestamp.ToUnixTimeMilliseconds();
         }
 
         private async Task DeleteMostRecent(SocketMessage recent, SocketMessage other)
@@ -951,7 +980,7 @@ namespace Dalamud.DiscordBridge
 
         private static async Task TryDeleteAsync(SocketMessage message)
         {
-            PluginLog.LogInformation($"[IN TESTING]\n TRY DELETE: ({message.Author.Username}) {message.Content}");
+            LogDedupe($"Delete: ({message.Author.Username}) {message.Content}");
 
             // if (message.Author.IsBot)
             // {
@@ -965,10 +994,16 @@ namespace Dalamud.DiscordBridge
             }
             catch (Discord.Net.HttpException)
             {
-                PluginLog.LogInformation($"Message could not be deleted");
+                LogDedupe($"Message could not be deleted");
             }
         }
 
+
+        private const string GroupPrefix = "prefix"; 
+        private const string GroupSlug = "slug"; 
+        private const string GroupText = "text"; 
+        private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)(?'{GroupSlug}'\[.+\]) (?'{GroupText}'.+)");
+        
         private bool IsDuplicate(SocketMessage recent, SocketMessage other)
         {
             string left = recent.Content;
@@ -976,14 +1011,26 @@ namespace Dalamud.DiscordBridge
 
             bool notEmptyString = !(recent.Content.IsNullOrEmpty() && other.Content.IsNullOrEmpty());
 
-            bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
+            //bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
+            const bool bothWebhook = true;
 
             bool sameUser = recent.Author.Username == other.Author.Username;
             //bool sameUser = true;
+            
 
             bool differentId = recent.Id != other.Id;
 
-            return notEmptyString && bothWebhook && sameUser && differentId && (left.Contains(right) || right.Contains(left));
+            string leftText = GetText(recent.Content);
+            string rightText = GetText(other.Content);
+
+            return notEmptyString && bothWebhook && sameUser && differentId && (leftText == rightText);
+        }
+
+        private static string GetText(string recentContent)
+        {
+            var matches = ExtractChatText.Match(recentContent);
+
+            return matches.Groups[GroupText].Value;
         }
 
         public async Task SendContentFinderEvent(QueuedContentFinderEvent cfEvent)
