@@ -48,7 +48,7 @@ namespace Dalamud.DiscordBridge
                 long msgDiff = GetElapsedMs(recentMsg);
                     
                 //if (msgDiff < this.plugin.Config.DuplicateCheckMS)
-                if (msgDiff < 5000)
+                if (msgDiff < 2000)
                 {
                     LogDedupe($"DIFF:{msgDiff}ms Skipping duplicate message: {chatText}");
                     return true;
@@ -69,7 +69,7 @@ namespace Dalamud.DiscordBridge
         public async Task Dedupe(SocketChannel socketChannel)
         {
             //GetElapsedMs(StartTime);
-            if (DedupeTimer.ElapsedMilliseconds < 5000)
+            if (DedupeTimer.ElapsedMilliseconds < 1000)
             {
                 if (!DedupeTimer.IsRunning) DedupeTimer.Start();
                 //LogDedupe("No-op");
@@ -125,7 +125,7 @@ namespace Dalamud.DiscordBridge
 
         private static long DifferenceMs(DateTimeOffset left, DateTimeOffset right)
         {
-            return left.ToUnixTimeMilliseconds() - right.ToUnixTimeMilliseconds();
+            return GetElapsedMs(left) - GetElapsedMs(right);
         }
 
         private async Task DeleteMostRecent(SocketMessage recent, SocketMessage other)
@@ -173,14 +173,15 @@ namespace Dalamud.DiscordBridge
 
             bool notEmptyString = !(recent.Content.IsNullOrEmpty() && other.Content.IsNullOrEmpty());
 
-            //bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
-            const bool bothWebhook = true;
+            bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
+            bothWebhook = true;
 
             bool sameUser = recent.Author.Username == other.Author.Username;
+            sameUser = true;
             LogDedupe($"USERS: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
-            //bool sameUser = true;
 
-            bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < 5000;
+            bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < 3000;
+            LogDedupe($"withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
 
             bool differentId = recent.Id != other.Id;
 
