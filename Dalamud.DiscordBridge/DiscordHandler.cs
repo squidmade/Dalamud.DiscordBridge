@@ -152,9 +152,10 @@ namespace Dalamud.DiscordBridge
         {
             //DEDUPE: call dedupe
             //LogDedupe("Message received");
-            if (message.Channel is SocketChannel socketChannel)
+            duplicateFilter.Add(message);
+            //if (message.Channel is SocketChannel socketChannel)
             {
-                await duplicateFilter.Dedupe(socketChannel);
+                await duplicateFilter.Dedupe();
             }
 
             if (message.Author.IsBot || message.Author.IsWebhook)
@@ -862,7 +863,7 @@ namespace Dalamud.DiscordBridge
                     continue;
                 }
 
-                if (duplicateFilter.IsRecentlySent(displayName, chatText: message, socketChannel))
+                if (duplicateFilter.IsRecentlySent(displayName, chatText: message))
                 {
                     return;
                 }

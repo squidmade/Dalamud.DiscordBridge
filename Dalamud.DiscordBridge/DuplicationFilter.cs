@@ -1,44 +1,40 @@
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Net.Sockets;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Dalamud.DiscordBridge.Model;
-using Dalamud.DiscordBridge.XivApi;
-using Dalamud.Game.Text;
+
+using Discord.WebSocket;
+
 using Dalamud.Logging;
 using Dalamud.Utility;
-using Discord;
-using Discord.Net.Providers.WS4Net;
-using Discord.Webhook;
-using Discord.WebSocket;
-using Lumina.Text;
-using NetStone;
-using NetStone.Model.Parseables.Character;
-using NetStone.Model.Parseables.Search.Character;
-using NetStone.Search.Character;
 
 namespace Dalamud.DiscordBridge
 {
     public class DuplicateFilter
     {
-        
-        public static DateTimeOffset StartTime = DateTimeOffset.Now;
-        public static Stopwatch DedupeTimer = new Stopwatch();
-
-        private static void LogDedupe(string message)
+        public DuplicateFilter()
         {
-            PluginLog.LogDebug($"[DEDUPE] {message}");
+            DedupeTimer.Start();
         }
+        
+        #region Methods
 
-        public bool IsRecentlySent(string displayName, string chatText, SocketChannel socketChannel)
+        private List<SocketMessage> recentMessages = new();
+        
+        public void Add(SocketMessage message)
+        {
+            LogDedupe($"Adding message: {message.Author.Username} {message.Content}");
+            
+            recentMessages.Add(message);
+        }
+        
+        public bool IsRecentlySent(string displayName, string chatText)
         {
             // check for duplicates before sending
             // straight up copied from the previous bot, but I have no way to test this myself.
-            var cachedMessages = (socketChannel as SocketTextChannel).GetCachedMessages();
-            var recentMsg = cachedMessages.FirstOrDefault(msg =>
+            var recentMsg = recentMessages.FirstOrDefault(msg =>
                 IsDuplicate(msg.Author.Username, msg.Content, displayName, chatText));
 
                 
@@ -66,30 +62,22 @@ namespace Dalamud.DiscordBridge
             // refer to https://discord.com/channels/581875019861328007/684745859497590843/791207648619266060
         }
 
-        public async Task Dedupe(SocketChannel socketChannel)
+        public async Task Dedupe()
         {
             //GetElapsedMs(StartTime);
-            if (DedupeTimer.ElapsedMilliseconds < 1000)
+            if (DedupeTimer.ElapsedMilliseconds < 500)
             {
-                if (!DedupeTimer.IsRunning) DedupeTimer.Start();
                 //LogDedupe("No-op");
                 return;
             }
             DedupeTimer.Restart();
-            
-            if (socketChannel is not SocketTextChannel socketTextChannel)
-            {
-                return;
-            }
 
-            var cachedMessages = socketTextChannel.GetCachedMessages();
-
-            var recentMessages = cachedMessages.Where(m => GetElapsedMs(m) < 10000);
+            var recentMessages = this.recentMessages.Where(m => GetElapsedMs(m) < 10000);
             var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
             var content = socketMessages.Select(m => m.Content);
 
             LogDedupe("Dedupe cached messages");
-            LogDedupe($"- Total: {cachedMessages.Count()}");
+            LogDedupe($"- Total: {this.recentMessages.Count()}");
             LogDedupe($"- Recent: {socketMessages.Count()}");
             LogDedupe($"- Content: {string.Join(", ", content)}");
 
@@ -110,6 +98,17 @@ namespace Dalamud.DiscordBridge
                     }
                 }
             }
+
+            this.recentMessages = new List<SocketMessage>(recentMessages);
+        }
+
+        #endregion
+        
+        #region Private Functions
+        
+        private static void LogDedupe(string message)
+        {
+            PluginLog.LogDebug($"[DEDUPE] {message}");
         }
 
         private static long GetElapsedMs(DateTimeOffset timestamp)
@@ -146,8 +145,8 @@ namespace Dalamud.DiscordBridge
 
             // if (message.Author.IsBot)
             // {
-               //  PluginLog.LogInformation($"AUTHOR IS BOT");
-               //  return;
+            //  PluginLog.LogInformation($"AUTHOR IS BOT");
+            //  return;
             // }
 
             try
@@ -159,12 +158,6 @@ namespace Dalamud.DiscordBridge
                 LogDedupe($"Message could not be deleted");
             }
         }
-
-
-        private const string GroupPrefix = "prefix"; 
-        private const string GroupSlug = "slug"; 
-        private const string GroupText = "text"; 
-        private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)(?'{GroupSlug}'\[.+\]) (?'{GroupText}'.+)");
         
         private bool IsDuplicate(SocketMessage recent, SocketMessage other)
         {
@@ -204,7 +197,20 @@ namespace Dalamud.DiscordBridge
         {
             var matches = ExtractChatText.Match(recentContent);
 
-            return matches.Groups[GroupText].Value;
+            return matches.Groups[GroupChatText].Value;
         }
+        
+        #endregion
+        
+        #region Private Data
+
+        private const string GroupPrefix = "prefix"; 
+        private const string GroupSlug = "slug"; 
+        private const string GroupChatText = "chatText"; 
+        private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)(?'{GroupSlug}'\[.+\]) (?'{GroupChatText}'.+)");
+
+        private static readonly Stopwatch DedupeTimer = new();
+
+        #endregion
     }
 }
