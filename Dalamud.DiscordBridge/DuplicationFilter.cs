@@ -28,8 +28,7 @@ namespace Dalamud.DiscordBridge
 
             if (recentMessages.All(m => m.Id != message.Id))
             {
-
-                recentMessages.Add(message);                
+                recentMessages.Add(message);
             }
             else
             {
@@ -56,10 +55,10 @@ namespace Dalamud.DiscordBridge
                     LogDedupe($"DIFF:{msgDiff}ms Skipping duplicate message: {chatText}");
                     return true;
                 }
-                        
             }
                 
             LogDedupe($"Sending: {displayName}, {chatText}");
+            
             return false;
 
             // the message to a list of recently sent messages. 
@@ -75,6 +74,9 @@ namespace Dalamud.DiscordBridge
             var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
             var content = socketMessages.Select(m => m.Content);
 
+            //todo: all of this needs to be made more efficient in terms of linq and collection operations
+            //todo: - use a set?
+            
             LogDedupe("Dedupe cached messages");
             LogDedupe($"- Total: {this.recentMessages.Count()}");
             if (this.recentMessages.Count() == 0) return;
@@ -85,26 +87,23 @@ namespace Dalamud.DiscordBridge
             {
                 LogDedupe($"- Content: {string.Join(", ", content)}");
 
-            
+                //todo: check if there's a cleaner/linq way to compare every item to every other item 
                 for (var i = 0; i < socketMessages.Length; i++)
                 {
                     var recent = socketMessages[i];
 
-                    for (var j = 0; j < socketMessages.Length; j++)
+                    for (var j = i + 1; j < socketMessages.Length; j++)
                     {
-                        if (i != j)
+                        var other = socketMessages[j];
+
+                        if (IsDuplicate(recent, other))
                         {
-                            var other = socketMessages[j];
+                            bool wasDeleted = await DeleteMostRecent(recent, other);
 
-                            if (IsDuplicate(recent, other))
+                            if (wasDeleted)
                             {
-                                bool wasDeleted = await DeleteMostRecent(recent, other);
-
-                                if (wasDeleted)
-                                {
-                                    deletedMessages.Add(recent);
-                                    deletedMessages.Add(other);
-                                }
+                                deletedMessages.Add(recent);
+                                deletedMessages.Add(other);
                             }
                         }
                     }
