@@ -24,6 +24,8 @@ namespace Dalamud.DiscordBridge
 {
     public class DiscordHandler : IDisposable
     {
+        private readonly DuplicateFilter duplicateFilter = new DuplicateFilter();
+        
         private readonly DiscordSocketClient socketClient;
         private readonly SpecialCharsHandler specialChars;
 
@@ -148,11 +150,11 @@ namespace Dalamud.DiscordBridge
 
         private async Task SocketClientOnMessageReceived(SocketMessage message)
         {
-            LogDedupe("Message received");
-            
+            //DEDUPE: call dedupe
+            //LogDedupe("Message received");
             if (message.Channel is SocketChannel socketChannel)
             {
-                await Dedupe(socketChannel);
+                await duplicateFilter.Dedupe(socketChannel);
             }
 
             if (message.Author.IsBot || message.Author.IsWebhook)
@@ -860,177 +862,19 @@ namespace Dalamud.DiscordBridge
                     continue;
                 }
 
+                if (duplicateFilter.IsRecentlySent(displayName, chatText: message, socketChannel))
+                {
+                    return;
+                }
+
                 var webhookClient = await GetOrCreateWebhookClient(socketChannel);
                 var messageContent = chatType != XivChatTypeExtensions.IpcChatType ? $"{prefix}**[{chatTypeText}]** {message}" : $"{prefix} {message}";
 
-
-                // check for duplicates before sending
-                // straight up copied from the previous bot, but I have no way to test this myself.
-                var cachedMessages = (socketChannel as SocketTextChannel).GetCachedMessages();
-                var recentMsg = cachedMessages.FirstOrDefault(msg => msg.Content == messageContent);
-
-                
-                //if (this.plugin.Config.DuplicateCheckMS > 0 && recentMsg != null)
-                if (recentMsg != null)
-                {
-                    long msgDiff = GetElapsedMs(recentMsg);
-                    
-                    //if (msgDiff < this.plugin.Config.DuplicateCheckMS)
-                    if (msgDiff < 5000)
-                    {
-                        LogDedupe($"DIFF:{msgDiff}ms Skipping duplicate message: {messageContent}");
-                        return;
-                    }
-                        
-                }
-                
                 await webhookClient.SendMessageAsync(
                     messageContent,username: displayName, avatarUrl: avatarUrl, 
                     allowedMentions: new AllowedMentions(AllowedMentionTypes.Roles | AllowedMentionTypes.Users | AllowedMentionTypes.None)
                 );
-                
-                LogDedupe($"Sent: {displayName}, {messageContent}");
-
-                // await Dedupe(socketChannel);
-
-                // the message to a list of recently sent messages. 
-                // If someone else sent the same thing at the same time
-                // both will need to be checked and the earlier timestamp kept
-                // while the newer one is removed
-                // refer to https://discord.com/channels/581875019861328007/684745859497590843/791207648619266060
             }
-        }
-
-        public static DateTimeOffset StartTime = DateTimeOffset.Now;
-        public static Stopwatch DedupeTimer = new Stopwatch();
-
-        private static void LogDedupe(string message)
-        {
-            PluginLog.LogDebug($"[DEDUPE] {message}");
-        }
-        
-        private async Task Dedupe(SocketChannel socketChannel)
-        {
-            //GetElapsedMs(StartTime);
-            if (DedupeTimer.ElapsedMilliseconds < 5000)
-            {
-                if (!DedupeTimer.IsRunning) DedupeTimer.Start();
-                //LogDedupe("No-op");
-                return;
-            }
-            DedupeTimer.Restart();
-            
-            if (socketChannel is not SocketTextChannel socketTextChannel)
-            {
-                return;
-            }
-
-            var cachedMessages = socketTextChannel.GetCachedMessages();
-
-            var recentMessages = cachedMessages.Where(m => GetElapsedMs(m) < 10000);
-            var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
-            var content = socketMessages.Select(m => m.Content);
-
-            LogDedupe("Dedupe cached messages");
-            LogDedupe($"- Total: {cachedMessages.Count()}");
-            LogDedupe($"- Recent: {socketMessages.Count()}");
-            LogDedupe($"- Content: {string.Join(", ", content)}");
-
-            for (var i = 0; i < socketMessages.Length; i++)
-            {
-                var recent = socketMessages[i];
-
-                for (var j = 0; j < socketMessages.Length; j++)
-                {
-                    if (i != j)
-                    {
-                        var other = socketMessages[j];
-
-                        if (IsDuplicate(recent, other))
-                        {
-                            await DeleteMostRecent(recent, other);
-                        }
-                    }
-                }
-            }
-        }
-
-        private static long GetElapsedMs(DateTimeOffset timestamp)
-        {
-            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - timestamp.ToUnixTimeMilliseconds();
-        }
-
-        private static long GetElapsedMs(SocketMessage message)
-        {
-            return GetElapsedMs(message.Timestamp);
-            //return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - message.Timestamp.ToUnixTimeMilliseconds();
-        }
-
-        private async Task DeleteMostRecent(SocketMessage recent, SocketMessage other)
-        {
-            if (recent.Timestamp > other.Timestamp)
-            {
-                await TryDeleteAsync(recent);
-            }
-            else
-            {
-                await TryDeleteAsync(other);
-            }
-        }
-
-        private static async Task TryDeleteAsync(SocketMessage message)
-        {
-            LogDedupe($"Delete: ({message.Author.Username}) {message.Content}");
-
-            // if (message.Author.IsBot)
-            // {
-               //  PluginLog.LogInformation($"AUTHOR IS BOT");
-               //  return;
-            // }
-
-            try
-            {
-                await message.DeleteAsync();
-            }
-            catch (Discord.Net.HttpException)
-            {
-                LogDedupe($"Message could not be deleted");
-            }
-        }
-
-
-        private const string GroupPrefix = "prefix"; 
-        private const string GroupSlug = "slug"; 
-        private const string GroupText = "text"; 
-        private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)(?'{GroupSlug}'\[.+\]) (?'{GroupText}'.+)");
-        
-        private bool IsDuplicate(SocketMessage recent, SocketMessage other)
-        {
-            string left = recent.Content;
-            string right = other.Content;
-
-            bool notEmptyString = !(recent.Content.IsNullOrEmpty() && other.Content.IsNullOrEmpty());
-
-            //bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
-            const bool bothWebhook = true;
-
-            bool sameUser = recent.Author.Username == other.Author.Username;
-            //bool sameUser = true;
-            
-
-            bool differentId = recent.Id != other.Id;
-
-            string leftText = GetText(recent.Content);
-            string rightText = GetText(other.Content);
-
-            return notEmptyString && bothWebhook && sameUser && differentId && (leftText == rightText);
-        }
-
-        private static string GetText(string recentContent)
-        {
-            var matches = ExtractChatText.Match(recentContent);
-
-            return matches.Groups[GroupText].Value;
         }
 
         public async Task SendContentFinderEvent(QueuedContentFinderEvent cfEvent)
