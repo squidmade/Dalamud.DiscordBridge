@@ -38,7 +38,8 @@ namespace Dalamud.DiscordBridge
             // check for duplicates before sending
             // straight up copied from the previous bot, but I have no way to test this myself.
             var cachedMessages = (socketChannel as SocketTextChannel).GetCachedMessages();
-            var recentMsg = cachedMessages.FirstOrDefault(msg => msg.Content == chatText);
+            var recentMsg = cachedMessages.FirstOrDefault(msg =>
+                IsDuplicate(msg.Author.Username, msg.Content, displayName, chatText));
 
                 
             //if (this.plugin.Config.DuplicateCheckMS > 0 && recentMsg != null)
@@ -187,6 +188,15 @@ namespace Dalamud.DiscordBridge
             string rightText = GetText(other.Content);
 
             return notEmptyString && bothWebhook && sameUser && withinTime && differentId && (leftText == rightText);
+        }
+
+        private bool IsDuplicate(string leftDisplayName, string leftContent, string rightDisplayName, string rightContent)
+        {
+            string leftChatText = GetText(leftContent);
+            string rightChatText = GetText(rightContent);
+
+            return leftDisplayName == rightDisplayName &&
+                   leftChatText == rightChatText;
         }
 
         private static string GetText(string recentContent)
