@@ -146,10 +146,10 @@ namespace Dalamud.DiscordBridge
 
         private async Task SocketClientOnMessageReceived(SocketMessage message)
         {
-	        if (message.Channel is SocketChannel socketChannel)
-	        {
-		        await Dedupe(socketChannel);
-	        }
+            if (message.Channel is SocketChannel socketChannel)
+            {
+                await Dedupe(socketChannel);
+            }
 
             if (message.Author.IsBot || message.Author.IsWebhook)
                 return;
@@ -898,92 +898,92 @@ namespace Dalamud.DiscordBridge
 
         private async Task Dedupe(SocketChannel socketChannel)
         {
-	        if (socketChannel is not SocketTextChannel socketTextChannel)
-	        {
-		        return;
-	        }
+            if (socketChannel is not SocketTextChannel socketTextChannel)
+            {
+                return;
+            }
 
-	        var cachedMessages = socketTextChannel.GetCachedMessages();
+            var cachedMessages = socketTextChannel.GetCachedMessages();
 
-	        var recentMessages = cachedMessages.Where(m => GetElapsedMs(m) < 10000);
-	        var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
-	        var content = socketMessages.Select(m => m.Content);
+            var recentMessages = cachedMessages.Where(m => GetElapsedMs(m) < 10000);
+            var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
+            var content = socketMessages.Select(m => m.Content);
 
-	        PluginLog.LogInformation($"Total: {cachedMessages.Count()}");
-	        PluginLog.LogInformation($"Recent: {socketMessages.Count()}");
-	        PluginLog.LogInformation($"Content: {string.Join(", ", content)}");
+            PluginLog.LogInformation($"Total: {cachedMessages.Count()}");
+            PluginLog.LogInformation($"Recent: {socketMessages.Count()}");
+            PluginLog.LogInformation($"Content: {string.Join(", ", content)}");
 
-	        for (var i = 0; i < socketMessages.Length; i++)
-	        {
-		        var recent = socketMessages[i];
+            for (var i = 0; i < socketMessages.Length; i++)
+            {
+                var recent = socketMessages[i];
 
-		        for (var j = 0; j < socketMessages.Length; j++)
-		        {
-			        if (i != j)
-			        {
-				        var other = socketMessages[j];
+                for (var j = 0; j < socketMessages.Length; j++)
+                {
+                    if (i != j)
+                    {
+                        var other = socketMessages[j];
 
-				        if (IsDuplicate(recent, other))
-				        {
-					        await DeleteMostRecent(recent, other);
-				        }
-			        }
-		        }
-	        }
+                        if (IsDuplicate(recent, other))
+                        {
+                            await DeleteMostRecent(recent, other);
+                        }
+                    }
+                }
+            }
         }
 
         private static long GetElapsedMs(SocketMessage message)
         {
-	        return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - message.Timestamp.ToUnixTimeMilliseconds();
+            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - message.Timestamp.ToUnixTimeMilliseconds();
         }
 
         private async Task DeleteMostRecent(SocketMessage recent, SocketMessage other)
         {
-	        if (recent.Timestamp > other.Timestamp)
-	        {
-		        await TryDeleteAsync(recent);
-	        }
-	        else
-	        {
-		        await TryDeleteAsync(other);
-	        }
+            if (recent.Timestamp > other.Timestamp)
+            {
+                await TryDeleteAsync(recent);
+            }
+            else
+            {
+                await TryDeleteAsync(other);
+            }
         }
 
         private static async Task TryDeleteAsync(SocketMessage message)
         {
-	        PluginLog.LogInformation($"[IN TESTING]\n TRY DELETE: ({message.Author.Username}) {message.Content}");
+            PluginLog.LogInformation($"[IN TESTING]\n TRY DELETE: ({message.Author.Username}) {message.Content}");
 
-	        // if (message.Author.IsBot)
-	        // {
-		       //  PluginLog.LogInformation($"AUTHOR IS BOT");
-		       //  return;
-	        // }
+            // if (message.Author.IsBot)
+            // {
+               //  PluginLog.LogInformation($"AUTHOR IS BOT");
+               //  return;
+            // }
 
-	        try
-	        {
-		        await message.DeleteAsync();
-	        }
-	        catch (Discord.Net.HttpException)
-	        {
-		        PluginLog.LogInformation($"Message could not be deleted");
-	        }
+            try
+            {
+                await message.DeleteAsync();
+            }
+            catch (Discord.Net.HttpException)
+            {
+                PluginLog.LogInformation($"Message could not be deleted");
+            }
         }
 
         private bool IsDuplicate(SocketMessage recent, SocketMessage other)
         {
-	        string left = recent.Content;
-	        string right = other.Content;
+            string left = recent.Content;
+            string right = other.Content;
 
-	        bool notEmptyString = !(recent.Content.IsNullOrEmpty() && other.Content.IsNullOrEmpty());
+            bool notEmptyString = !(recent.Content.IsNullOrEmpty() && other.Content.IsNullOrEmpty());
 
-	        bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
+            bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
 
-	        bool sameUser = recent.Author.Username == other.Author.Username;
-	        //bool sameUser = true;
+            bool sameUser = recent.Author.Username == other.Author.Username;
+            //bool sameUser = true;
 
-	        bool differentId = recent.Id != other.Id;
+            bool differentId = recent.Id != other.Id;
 
-	        return notEmptyString && bothWebhook && sameUser && differentId && (left.Contains(right) || right.Contains(left));
+            return notEmptyString && bothWebhook && sameUser && differentId && (left.Contains(right) || right.Contains(left));
         }
 
         public async Task SendContentFinderEvent(QueuedContentFinderEvent cfEvent)
