@@ -20,17 +20,28 @@ namespace Dalamud.DiscordBridge
             _log = log;
         }
 
-        public void LogValue(object value, [CallerArgumentExpression("value")] string name = null)
+        private static string FormatValue(object value)
         {
-            var valueStr = value is string ? $"\"{value}\"" : value.ToString(); 
-            
-            Log($"- {name}: {valueStr}");
+            return value is string ? $"\"{value}\"" : value.ToString();
+        }
+
+        public void LogExpr(object value, [CallerArgumentExpression("value")] string name = null)
+        {
+            Log($"{name}: {FormatValue(value)}");
+        }
+
+        public void LogValue(object value)
+        {
+            Log($"{FormatValue(value)}");
         }
         
-        public void Log(string message)
+        public void Log(string message, bool useBullet = true)
         {
+            var effectiveLevel = useBullet ? Math.Max(_level - 1, 0) : _level;
+            var bulletStr = useBullet ? _bullet : "";
+            
             var tagBlock = _tag.IsNullOrEmpty() ? "" : $"[{_tag}] "; 
-            var prefix = tagBlock + string.Concat(Enumerable.Repeat(_tab, _level));
+            var prefix = tagBlock + string.Concat(Enumerable.Repeat(_tab, effectiveLevel)) + bulletStr;
 
             var lines = message.Split(
                 new [] { "\r\n", "\r", "\n" },
@@ -52,7 +63,7 @@ namespace Dalamud.DiscordBridge
 
         public void Push(string message)
         {
-            Log(message);
+            Log(message, useBullet: false);
 
             Push();
         }
@@ -73,6 +84,7 @@ namespace Dalamud.DiscordBridge
         }
 
         private const string _tab = "  ";
+        private const string _bullet = "- ";
         private const int _maxLevel = 10;
         
         private int _level = 0;
@@ -94,22 +106,20 @@ namespace Dalamud.DiscordBridge
         public void Add(SocketMessage message)
         {
             if (!Enabled) return;
-
+            
             _logHelper.Push("ADD");
-            //_logHelper.Log($"Username: {message.Author.Username}");
-            //_logHelper.Log($"Content: {message.Content}");
-            _logHelper.LogValue(message.Author.Username);
-            _logHelper.LogValue(message.Content);
+            _logHelper.LogExpr(message.Author.Username);
+            _logHelper.LogExpr(message.Content);
 
             if (recentMessages.All(m => m.Id != message.Id))
             {
                 recentMessages.Add(message);
                 
-                _logHelper.Log("ADDED");
+                _logHelper.Log("(ADDED)");
             }
             else
             {
-                _logHelper.Log("SKIPPED");
+                _logHelper.Log("(SKIPPED)");
             }
             
             _logHelper.Pop();
@@ -120,10 +130,8 @@ namespace Dalamud.DiscordBridge
             if (!Enabled) return false;
             
             _logHelper.Push("SEND");
-            _logHelper.LogValue(displayName);
-            _logHelper.LogValue(chatText);
-            // _logHelper.Log($"{nameof(displayName)}: {displayName}");
-            // _logHelper.Log($"{nameof(chatText)}: {chatText}");
+            _logHelper.LogExpr(displayName);
+            _logHelper.LogExpr(chatText);
 
             // check for duplicates before sending
             // straight up copied from the previous bot, but I have no way to test this myself.
@@ -139,13 +147,13 @@ namespace Dalamud.DiscordBridge
                 //if (msgDiff < this.plugin.Config.DuplicateCheckMS)
                 if (msgDiff < OutgoingFilterIntervalMs)
                 {
-                    _logHelper.Pop("FILTERED");
+                    _logHelper.Pop("(FILTERED)");
                     
                     return true;
                 }
             }
             
-            _logHelper.Pop("ALLOWED");
+            _logHelper.Pop("(ALLOWED)");
             
             return false;
 
@@ -163,7 +171,7 @@ namespace Dalamud.DiscordBridge
             _logHelper.Push("DEDUPE");
 
             var dt = GetElapsedMs(lastUpdate);
-            _logHelper.Log($"- {dt}ms since last dedupe");
+            _logHelper.Log($"{dt}ms since last dedupe");
             if (dt < DedupeIntervalMs)
             {
                 _logHelper.Pop($"SKIPPED");
@@ -179,14 +187,14 @@ namespace Dalamud.DiscordBridge
             //todo: - use a set?
             
             _logHelper.Push("Recents:");
-            _logHelper.Log($"- Total: {this.recentMessages.Count()}");
+            _logHelper.Log($"Total: {this.recentMessages.Count()}");
             if (this.recentMessages.Count() == 0)
             {
                 _logHelper.Pop();
                 _logHelper.Pop();
                 return;
             }
-            _logHelper.Log($"- Recent: {socketMessages.Count()}");
+            _logHelper.Log($"Recent: {socketMessages.Count()}");
             _logHelper.Pop();
 
             var deletedMessages = new List<SocketMessage>();
@@ -197,7 +205,7 @@ namespace Dalamud.DiscordBridge
                 
                 foreach (var chatText in content)
                 {
-                    _logHelper.Log($"- \"{chatText}\"");
+                    _logHelper.LogValue(chatText);
                 }
                 
                 _logHelper.Pop();
@@ -227,8 +235,8 @@ namespace Dalamud.DiscordBridge
             }
 
             this.recentMessages = new List<SocketMessage>(recentMessages.Except(deletedMessages));
-            _logHelper.Log($"- Deleted Count: {deletedMessages.Count()}");
-            _logHelper.Log($"- Final Total: {this.recentMessages.Count()}");
+            _logHelper.Log($"Deleted Count: {deletedMessages.Count()}");
+            _logHelper.Log($"Final Total: {this.recentMessages.Count()}");
             
             _logHelper.Pop();
         }
@@ -275,10 +283,8 @@ namespace Dalamud.DiscordBridge
         private static async Task<bool> TryDeleteAsync(SocketMessage message)
         {
             _logHelper.Push("DELETE MESSAGE");
-            // _logHelper.Log($"- Username: {message.Author.Username}");
-            // _logHelper.Log($"- Content: {message.Content}");
-            _logHelper.LogValue(message.Author.Username);
-            _logHelper.LogValue(message.Content);
+            _logHelper.LogExpr(message.Author.Username);
+            _logHelper.LogExpr(message.Content);
 
             if (!message.Author.IsWebhook)
             {
@@ -289,13 +295,13 @@ namespace Dalamud.DiscordBridge
             {
                 await message.DeleteAsync();
                 
-                _logHelper.Pop("SUCCESS");
+                _logHelper.Pop("(SUCCESS)");
                 
                 return true;
             }
             catch (Discord.Net.HttpException)
             {
-                _logHelper.Log($"MESSAGE NOT FOUND");
+                _logHelper.Log($"(MESSAGE NOT FOUND)");
             }
             
             _logHelper.Pop();
@@ -317,10 +323,10 @@ namespace Dalamud.DiscordBridge
 
             bool sameUser = recent.Author.Username == other.Author.Username;
             //sameUser = true;
-            _logHelper.Log($"- sameUser: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
+            _logHelper.Log($"sameUser: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
 
             bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < ComparisonIntervalMs;
-            _logHelper.Log($"- withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
+            _logHelper.Log($"withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
 
             bool differentId = recent.Id != other.Id;
 
@@ -328,7 +334,7 @@ namespace Dalamud.DiscordBridge
             string rightText = GetText(other.Content);
 
             var result = notEmptyString && bothWebhook && sameUser && withinTime && differentId && (leftText == rightText);
-            _logHelper.Pop($"RETURN {result}");
+            _logHelper.Pop($"(RETURN {result})");
             return result;
         }
 
