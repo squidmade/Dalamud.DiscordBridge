@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -12,6 +12,74 @@ using Dalamud.Utility;
 
 namespace Dalamud.DiscordBridge
 {
+    public class LogHelper
+    {
+        public LogHelper(string tag, Action<string> log)
+        {
+            _tag = tag;
+            _log = log;
+        }
+
+        public void LogValue(object value, [CallerArgumentExpression("value")] string name = null)
+        {
+            var valueStr = value is string ? $"\"{value}\"" : value.ToString(); 
+            
+            Log($"- {name}: {valueStr}");
+        }
+        
+        public void Log(string message)
+        {
+            var tagBlock = _tag.IsNullOrEmpty() ? "" : $"[{_tag}] "; 
+            var prefix = tagBlock + string.Concat(Enumerable.Repeat(_tab, _level));
+
+            var lines = message.Split(
+                new [] { "\r\n", "\r", "\n" },
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            foreach (var line in lines)
+            {
+                _log(prefix + line);
+            }
+        }
+
+        public void Push()
+        {
+            if (_level < _maxLevel)
+            {
+                ++_level;
+            }
+        }
+
+        public void Push(string message)
+        {
+            Log(message);
+
+            Push();
+        }
+
+        public void Pop()
+        {
+            if (_level > 0)
+            {
+                --_level;
+            }
+        }
+
+        public void Pop(string message)
+        {
+            Log(message);
+
+            Pop();
+        }
+
+        private const string _tab = "  ";
+        private const int _maxLevel = 10;
+        
+        private int _level = 0;
+        private readonly Action<string> _log;
+        private readonly string _tag;
+    }
+    
     public class DuplicateFilter
     {
         public const bool Enabled = true;
@@ -26,28 +94,36 @@ namespace Dalamud.DiscordBridge
         public void Add(SocketMessage message)
         {
             if (!Enabled) return;
-            
-            LogDedupe($"Add message: {message.Author.Username} {message.Content}");
+
+            _logHelper.Push("ADD");
+            //_logHelper.Log($"Username: {message.Author.Username}");
+            //_logHelper.Log($"Content: {message.Content}");
+            _logHelper.LogValue(message.Author.Username);
+            _logHelper.LogValue(message.Content);
 
             if (recentMessages.All(m => m.Id != message.Id))
             {
                 recentMessages.Add(message);
+                
+                _logHelper.Log("ADDED");
             }
             else
             {
-                LogDedupe("NOT ADDING");
+                _logHelper.Log("SKIPPED");
             }
             
+            _logHelper.Pop();
         }
-        
-        private const long OutgoingFilterIntervalMs = 2000;
-        private const long DedupeIntervalMs = 1000;
-        private const long RecentIntervalMs = 10000;
-        private const long ComparisonIntervalMs = 3000;
         
         public bool IsRecentlySent(string displayName, string chatText)
         {
             if (!Enabled) return false;
+            
+            _logHelper.Push("SEND");
+            _logHelper.LogValue(displayName);
+            _logHelper.LogValue(chatText);
+            // _logHelper.Log($"{nameof(displayName)}: {displayName}");
+            // _logHelper.Log($"{nameof(chatText)}: {chatText}");
 
             // check for duplicates before sending
             // straight up copied from the previous bot, but I have no way to test this myself.
@@ -58,16 +134,18 @@ namespace Dalamud.DiscordBridge
             if (recentMsg != null)
             {
                 long msgDiff = GetElapsedMs(recentMsg);
-                    
+                _logHelper.Log($"{nameof(msgDiff)}: {msgDiff}");
+                
                 //if (msgDiff < this.plugin.Config.DuplicateCheckMS)
                 if (msgDiff < OutgoingFilterIntervalMs)
                 {
-                    LogDedupe($"DIFF:{msgDiff}ms Skipping duplicate message: {chatText}");
+                    _logHelper.Pop("FILTERED");
+                    
                     return true;
                 }
             }
-                
-            LogDedupe($"Sending: {displayName}, {chatText}");
+            
+            _logHelper.Pop("ALLOWED");
             
             return false;
 
@@ -81,9 +159,15 @@ namespace Dalamud.DiscordBridge
         public async Task Dedupe()
         {
             if (!Enabled) return;
+            
+            _logHelper.Push("DEDUPE");
 
-            if (GetElapsedMs(lastUpdate) < DedupeIntervalMs)
+            var dt = GetElapsedMs(lastUpdate);
+            _logHelper.Log($"- {dt}ms since last dedupe");
+            if (dt < DedupeIntervalMs)
             {
+                _logHelper.Pop($"SKIPPED");
+                
                 return;
             }
             
@@ -94,15 +178,30 @@ namespace Dalamud.DiscordBridge
             //todo: all of this needs to be made more efficient in terms of linq and collection operations
             //todo: - use a set?
             
-            LogDedupe("Dedupe cached messages");
-            LogDedupe($"- Total: {this.recentMessages.Count()}");
-            if (this.recentMessages.Count() == 0) return;
-            LogDedupe($"- Recent: {socketMessages.Count()}");
+            _logHelper.Push("Recents:");
+            _logHelper.Log($"- Total: {this.recentMessages.Count()}");
+            if (this.recentMessages.Count() == 0)
+            {
+                _logHelper.Pop();
+                _logHelper.Pop();
+                return;
+            }
+            _logHelper.Log($"- Recent: {socketMessages.Count()}");
+            _logHelper.Pop();
 
             var deletedMessages = new List<SocketMessage>();
+            
             if (socketMessages.Count() > 0)
             {
-                LogDedupe($"- Content: {string.Join(", ", content)}");
+                _logHelper.Push("Content:");
+                
+                foreach (var chatText in content)
+                {
+                    _logHelper.Log($"- \"{chatText}\"");
+                }
+                
+                _logHelper.Pop();
+                
 
                 //todo: check if there's a cleaner/linq way to compare every item to every other item 
                 for (var i = 0; i < socketMessages.Length; i++)
@@ -128,8 +227,10 @@ namespace Dalamud.DiscordBridge
             }
 
             this.recentMessages = new List<SocketMessage>(recentMessages.Except(deletedMessages));
-            LogDedupe($"- Deleted Count: {deletedMessages.Count()}");
-            LogDedupe($"- Final Total: {this.recentMessages.Count()}");
+            _logHelper.Log($"- Deleted Count: {deletedMessages.Count()}");
+            _logHelper.Log($"- Final Total: {this.recentMessages.Count()}");
+            
+            _logHelper.Pop();
         }
 
         #endregion
@@ -138,8 +239,11 @@ namespace Dalamud.DiscordBridge
         
         private static void LogDedupe(string message)
         {
-            PluginLog.LogDebug($"[DEDUPE] {message}");
+            _logHelper.Log(message);
+            //PluginLog.LogDebug($"[DEDUPE] {message}");
         }
+
+        private static readonly LogHelper _logHelper = new LogHelper("FILTER", m => { PluginLog.LogWarning(m);});
 
         private static long GetElapsedMs(DateTimeOffset timestamp)
         {
@@ -170,29 +274,39 @@ namespace Dalamud.DiscordBridge
 
         private static async Task<bool> TryDeleteAsync(SocketMessage message)
         {
-            LogDedupe($"Delete: ({message.Author.Username}) {message.Content}");
+            _logHelper.Push("DELETE MESSAGE");
+            // _logHelper.Log($"- Username: {message.Author.Username}");
+            // _logHelper.Log($"- Content: {message.Content}");
+            _logHelper.LogValue(message.Author.Username);
+            _logHelper.LogValue(message.Content);
 
-            // if (message.Author.IsBot)
-            // {
-            //  PluginLog.LogInformation($"AUTHOR IS BOT");
-            //  return;
-            // }
+            if (!message.Author.IsWebhook)
+            {
+                _logHelper.Log("NOT WEBHOOK: Should only delete webhook messages");
+            }
 
             try
             {
                 await message.DeleteAsync();
+                
+                _logHelper.Pop("SUCCESS");
+                
                 return true;
             }
             catch (Discord.Net.HttpException)
             {
-                LogDedupe($"Message could not be deleted");
+                _logHelper.Log($"MESSAGE NOT FOUND");
             }
-
+            
+            _logHelper.Pop();
+            
             return false;
         }
         
         private bool IsDuplicate(SocketMessage recent, SocketMessage other)
         {
+            _logHelper.Push("COMPARE");
+            
             string left = recent.Content;
             string right = other.Content;
 
@@ -203,17 +317,19 @@ namespace Dalamud.DiscordBridge
 
             bool sameUser = recent.Author.Username == other.Author.Username;
             //sameUser = true;
-            LogDedupe($"USERS: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
+            _logHelper.Log($"- sameUser: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
 
             bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < ComparisonIntervalMs;
-            LogDedupe($"withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
+            _logHelper.Log($"- withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
 
             bool differentId = recent.Id != other.Id;
 
             string leftText = GetText(recent.Content);
             string rightText = GetText(other.Content);
 
-            return notEmptyString && bothWebhook && sameUser && withinTime && differentId && (leftText == rightText);
+            var result = notEmptyString && bothWebhook && sameUser && withinTime && differentId && (leftText == rightText);
+            _logHelper.Pop($"RETURN {result}");
+            return result;
         }
 
         private bool IsDuplicate(string leftDisplayName, string leftContent, string rightDisplayName, string rightContent)
@@ -236,6 +352,11 @@ namespace Dalamud.DiscordBridge
         
         #region Private Data
 
+        private const long OutgoingFilterIntervalMs = 2000;
+        private const long DedupeIntervalMs = 1000;
+        private const long RecentIntervalMs = 10000;
+        private const long ComparisonIntervalMs = 3000;
+        
         private const string GroupPrefix = "prefix"; 
         private const string GroupSlug = "slug"; 
         private const string GroupChatText = "chatText"; 
