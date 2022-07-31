@@ -111,7 +111,9 @@ namespace Dalamud.DiscordBridge
             _logHelper.LogExpr(message.Author.Username);
             _logHelper.LogExpr(message.Content);
 
-            if (recentMessages.All(m => m.Id != message.Id))
+            if (recentMessages.All(m => m.Id != message.Id) &&
+                message.Author.IsWebhook &&
+                !message.Content.IsNullOrEmpty())
             {
                 recentMessages.Add(message);
                 
@@ -312,28 +314,22 @@ namespace Dalamud.DiscordBridge
         private bool IsDuplicate(SocketMessage recent, SocketMessage other)
         {
             _logHelper.Push("COMPARE");
-            
-            string left = recent.Content;
-            string right = other.Content;
-
-            bool notEmptyString = !(recent.Content.IsNullOrEmpty() && other.Content.IsNullOrEmpty());
-
-            bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
-            //bothWebhook = true;
 
             bool sameUser = recent.Author.Username == other.Author.Username;
             //sameUser = true;
-            _logHelper.Log($"sameUser: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
+            //_logHelper.Log($"sameUser: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
 
-            bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < ComparisonIntervalMs;
-            _logHelper.Log($"withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
+            //bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < ComparisonIntervalMs;
+            //_logHelper.Log($"withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
 
             bool differentId = recent.Id != other.Id;
 
             string leftText = GetText(recent.Content);
             string rightText = GetText(other.Content);
+            _logHelper.LogValue(leftText);
+            _logHelper.LogValue(rightText);
 
-            var result = notEmptyString && bothWebhook && sameUser && withinTime && differentId && (leftText == rightText);
+            var result = sameUser && differentId && (leftText == rightText);
             _logHelper.Pop($"(RETURN {result})");
             return result;
         }
