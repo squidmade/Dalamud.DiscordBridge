@@ -14,6 +14,7 @@ namespace Dalamud.DiscordBridge
 {
     public class DuplicateFilter
     {
+        public const bool Enabled = true;
         // public DuplicateFilter()
         // {
         // }
@@ -24,6 +25,8 @@ namespace Dalamud.DiscordBridge
         
         public void Add(SocketMessage message)
         {
+            if (!Enabled) return;
+            
             LogDedupe($"Add message: {message.Author.Username} {message.Content}");
 
             if (recentMessages.All(m => m.Id != message.Id))
@@ -37,8 +40,15 @@ namespace Dalamud.DiscordBridge
             
         }
         
+        private const long OutgoingFilterIntervalMs = 2000;
+        private const long DedupeIntervalMs = 1000;
+        private const long RecentIntervalMs = 10000;
+        private const long ComparisonIntervalMs = 3000;
+        
         public bool IsRecentlySent(string displayName, string chatText)
         {
+            if (!Enabled) return false;
+
             // check for duplicates before sending
             // straight up copied from the previous bot, but I have no way to test this myself.
             var recentMsg = recentMessages.FirstOrDefault(msg =>
@@ -50,7 +60,7 @@ namespace Dalamud.DiscordBridge
                 long msgDiff = GetElapsedMs(recentMsg);
                     
                 //if (msgDiff < this.plugin.Config.DuplicateCheckMS)
-                if (msgDiff < 2000)
+                if (msgDiff < OutgoingFilterIntervalMs)
                 {
                     LogDedupe($"DIFF:{msgDiff}ms Skipping duplicate message: {chatText}");
                     return true;
@@ -70,7 +80,14 @@ namespace Dalamud.DiscordBridge
 
         public async Task Dedupe()
         {
-            var recentMessages = this.recentMessages.Where(m => GetElapsedMs(m) < 10000);
+            if (!Enabled) return;
+
+            if (GetElapsedMs(lastUpdate) < DedupeIntervalMs)
+            {
+                return;
+            }
+            
+            var recentMessages = this.recentMessages.Where(m => GetElapsedMs(m) < RecentIntervalMs);
             var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
             var content = socketMessages.Select(m => m.Content);
 
@@ -182,13 +199,13 @@ namespace Dalamud.DiscordBridge
             bool notEmptyString = !(recent.Content.IsNullOrEmpty() && other.Content.IsNullOrEmpty());
 
             bool bothWebhook = recent.Author.IsWebhook && other.Author.IsWebhook;
-            bothWebhook = true;
+            //bothWebhook = true;
 
             bool sameUser = recent.Author.Username == other.Author.Username;
-            sameUser = true;
+            //sameUser = true;
             LogDedupe($"USERS: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
 
-            bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < 3000;
+            bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < ComparisonIntervalMs;
             LogDedupe($"withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
 
             bool differentId = recent.Id != other.Id;
@@ -225,7 +242,7 @@ namespace Dalamud.DiscordBridge
         private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)(?'{GroupSlug}'\[.+\]) (?'{GroupChatText}'.+)");
         // (?'GroupPrefix'.*)\*?\*?\[(?'GroupSlug'.+)\]\*?\*? (?'GroupChatText'.+)
 
-        private DateTimeOffset startTime = DateTimeOffset.Now;
+        private DateTimeOffset lastUpdate = DateTimeOffset.Now;
         
         #endregion
     }
