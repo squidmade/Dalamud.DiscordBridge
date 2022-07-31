@@ -9,6 +9,7 @@ using Discord.WebSocket;
 
 using Dalamud.Logging;
 using Dalamud.Utility;
+using Discord;
 
 namespace Dalamud.DiscordBridge
 {
@@ -95,9 +96,10 @@ namespace Dalamud.DiscordBridge
     public class DuplicateFilter
     {
         public const bool Enabled = true;
-        // public DuplicateFilter()
-        // {
-        // }
+        public DuplicateFilter()
+        {
+            _logHelper.Log("START ===========================================================================");
+        }
         
         #region Methods
 
@@ -108,6 +110,7 @@ namespace Dalamud.DiscordBridge
             if (!Enabled) return;
             
             _logHelper.Push("ADD");
+            //_logHelper.LogValue(message.Application.Id);
             _logHelper.LogExpr(message.Author.Username);
             _logHelper.LogExpr(message.Content);
 
@@ -172,14 +175,15 @@ namespace Dalamud.DiscordBridge
             
             _logHelper.Push("DEDUPE");
 
-            var dt = GetElapsedMs(lastUpdate);
-            _logHelper.Log($"{dt}ms since last dedupe");
-            if (dt < DedupeIntervalMs)
-            {
-                _logHelper.Pop($"SKIPPED");
-                
-                return;
-            }
+            // var dt = GetElapsedMs(lastUpdate);
+            // _logHelper.Log($"{dt}ms since last dedupe");
+            // if (dt < DedupeIntervalMs)
+            // {
+            //     lastUpdate = DateTimeOffset.Now;
+            //     _logHelper.Pop($"SKIPPED");
+            //     
+            //     return;
+            // }
             
             var recentMessages = this.recentMessages.Where(m => GetElapsedMs(m) < RecentIntervalMs);
             var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
@@ -270,16 +274,24 @@ namespace Dalamud.DiscordBridge
             return GetElapsedMs(left) - GetElapsedMs(right);
         }
 
-        private async Task<bool> DeleteMostRecent(SocketMessage recent, SocketMessage other)
+        private async Task<bool> DeleteMostRecent(SocketMessage left, SocketMessage right)
         {
-            if (recent.Timestamp > other.Timestamp)
+            _logHelper.Push("MOST RECENT");
+            
+            _logHelper.Log($"left created {GetElapsedMs(left.CreatedAt)}ms ago");
+            _logHelper.Log($"right created {GetElapsedMs(right.CreatedAt)}ms ago");
+
+            // delete recent if it's later than other (keep the older one)
+            if (GetElapsedMs(left.CreatedAt) > GetElapsedMs(right.CreatedAt))
             {
-                return await TryDeleteAsync(recent);
+                _logHelper.Log("(DELETE LEFT)");
+                _logHelper.Pop();
+                return await TryDeleteAsync(left);
             }
-            else
-            {
-                return await TryDeleteAsync(other);
-            }
+            
+            _logHelper.Log("(DELETE RIGHT)");
+            _logHelper.Pop();
+            return await TryDeleteAsync(right);
         }
 
         private static async Task<bool> TryDeleteAsync(SocketMessage message)
@@ -304,6 +316,7 @@ namespace Dalamud.DiscordBridge
             catch (Discord.Net.HttpException)
             {
                 _logHelper.Log($"(MESSAGE NOT FOUND)");
+                
             }
             
             _logHelper.Pop();
@@ -361,9 +374,9 @@ namespace Dalamud.DiscordBridge
         #region Private Data
 
         private const long OutgoingFilterIntervalMs = 2000;
-        private const long DedupeIntervalMs = 1000;
+        // private const long DedupeIntervalMs = 1000;
         private const long RecentIntervalMs = 10000;
-        private const long ComparisonIntervalMs = 3000;
+        // private const long ComparisonIntervalMs = 3000;
         
         private const string GroupPrefix = "prefix"; 
         private const string GroupSlug = "slug"; 
@@ -372,6 +385,7 @@ namespace Dalamud.DiscordBridge
         // (?'GroupPrefix'.*)\*?\*?\[(?'GroupSlug'.+)\]\*?\*? (?'GroupChatText'.+)
 
         private DateTimeOffset lastUpdate = DateTimeOffset.Now;
+        
         
         #endregion
     }
