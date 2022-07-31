@@ -326,8 +326,8 @@ namespace Dalamud.DiscordBridge
 
             string leftText = GetText(recent.Content);
             string rightText = GetText(other.Content);
-            _logHelper.LogValue(leftText);
-            _logHelper.LogValue(rightText);
+            _logHelper.LogExpr(leftText);
+            _logHelper.LogExpr(rightText);
 
             var result = sameUser && differentId && (leftText == rightText);
             _logHelper.Pop($"(RETURN {result})");
@@ -336,11 +336,17 @@ namespace Dalamud.DiscordBridge
 
         private bool IsDuplicate(string leftDisplayName, string leftContent, string rightDisplayName, string rightContent)
         {
+            _logHelper.Push("COMPARE (SIMPLE)");
+            
             string leftChatText = GetText(leftContent);
             string rightChatText = GetText(rightContent);
 
-            return leftDisplayName == rightDisplayName &&
+            bool result = leftDisplayName == rightDisplayName &&
                    leftChatText == rightChatText;
+
+            _logHelper.Pop($"(RETURN {result})");
+            
+            return result;
         }
 
         private static string GetText(string recentContent)
@@ -362,7 +368,7 @@ namespace Dalamud.DiscordBridge
         private const string GroupPrefix = "prefix"; 
         private const string GroupSlug = "slug"; 
         private const string GroupChatText = "chatText"; 
-        private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)(?'{GroupSlug}'\[.+\]) (?'{GroupChatText}'.+)");
+        private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)\*\*\[(?'{GroupSlug}'.+)\]\*\* (?'{GroupChatText}'.+)");
         // (?'GroupPrefix'.*)\*?\*?\[(?'GroupSlug'.+)\]\*?\*? (?'GroupChatText'.+)
 
         private DateTimeOffset lastUpdate = DateTimeOffset.Now;
