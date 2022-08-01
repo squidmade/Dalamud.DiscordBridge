@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -199,9 +200,14 @@ namespace Dalamud.DiscordBridge
                 
                 return true;
             }
-            catch (Discord.Net.HttpException)
+            catch (Discord.Net.HttpException ex)
             {
-                PluginLog.LogVerbose($"Message for deletion not found: {message.Id}");
+                // 404 Not Found is expected if the message was already deleted.
+                // Otherwise, it's an unexpected error so rethrow.
+                if (ex.HttpCode != HttpStatusCode.NotFound)
+                {
+                    throw;
+                }
             }
             
             return false;
