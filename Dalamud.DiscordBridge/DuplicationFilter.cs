@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 using Discord.WebSocket;
@@ -142,8 +141,8 @@ namespace Dalamud.DiscordBridge
         {
             try
             {
-                //await message.AddReactionAsync(new Emoji("💥"));
                 await message.DeleteAsync();
+                //await message.AddReactionAsync(new Emoji("💥")); // useful for testing
                 
                 PluginLog.LogVerbose($"[FILTER]\n[DELETED]\n CHANNEL: {message.Channel}\n NAME: {message.Author.Username}\n CONTENT: {message.Content}");
                 
