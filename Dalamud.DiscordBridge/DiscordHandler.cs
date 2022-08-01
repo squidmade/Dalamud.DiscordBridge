@@ -150,13 +150,9 @@ namespace Dalamud.DiscordBridge
 
         private async Task SocketClientOnMessageReceived(SocketMessage message)
         {
-            //DEDUPE: call dedupe
-            //LogDedupe("Message received");
             duplicateFilter.Add(message);
-            //if (message.Channel is SocketChannel socketChannel)
-            {
-                await duplicateFilter.Dedupe();
-            }
+            
+            await duplicateFilter.Dedupe();
 
             if (message.Author.IsBot || message.Author.IsWebhook)
                 return;

@@ -95,141 +95,71 @@ namespace Dalamud.DiscordBridge
     
     public class DuplicateFilter
     {
-        public const bool Enabled = true;
         public DuplicateFilter()
         {
-            _logHelper.Log("START ===========================================================================");
+            LogHelper.Log("START ===========================================================================");
         }
         
         #region Methods
-
-        private List<SocketMessage> recentMessages = new();
         
         public void Add(SocketMessage message)
         {
-            if (!Enabled) return;
-            
-            _logHelper.Push("ADD");
-            //_logHelper.LogValue(message.Application.Id);
-            _logHelper.LogExpr(message.Author.Username);
-            _logHelper.LogExpr(message.Content);
-
-            if (recentMessages.All(m => m.Id != message.Id) &&
+            if (_recentMessages.All(m => m.Id != message.Id) &&
                 message.Author.IsWebhook &&
                 !message.Content.IsNullOrEmpty())
             {
-                recentMessages.Add(message);
-                
-                _logHelper.Log("(ADDED)");
+                _recentMessages.Add(message);
             }
-            else
-            {
-                _logHelper.Log("(SKIPPED)");
-            }
-            
-            _logHelper.Pop();
         }
         
         public bool IsRecentlySent(string displayName, string chatText)
         {
-            if (!Enabled) return false;
-            
-            _logHelper.Push("SEND");
-            _logHelper.LogExpr(displayName);
-            _logHelper.LogExpr(chatText);
-
+            //todo this is wrong because msg.Content needs to be parsed to get the chatText
             // check for duplicates before sending
             // straight up copied from the previous bot, but I have no way to test this myself.
-            var recentMsg = recentMessages.FirstOrDefault(msg =>
+            var recentMsg = _recentMessages.FirstOrDefault(msg =>
                 IsDuplicate(msg.Author.Username, msg.Content, displayName, chatText));
 
             //if (this.plugin.Config.DuplicateCheckMS > 0 && recentMsg != null)
             if (recentMsg != null)
             {
                 long msgDiff = GetElapsedMs(recentMsg);
-                _logHelper.Log($"{nameof(msgDiff)}: {msgDiff}");
+                LogHelper.Log($"{nameof(msgDiff)}: {msgDiff}");
                 
                 //if (msgDiff < this.plugin.Config.DuplicateCheckMS)
                 if (msgDiff < OutgoingFilterIntervalMs)
                 {
-                    _logHelper.Pop("(FILTERED)");
+                    LogHelper.Log("(FILTERED)");
                     
                     return true;
                 }
             }
             
-            _logHelper.Pop("(ALLOWED)");
-            
             return false;
-
-            // the message to a list of recently sent messages. 
-            // If someone else sent the same thing at the same time
-            // both will need to be checked and the earlier timestamp kept
-            // while the newer one is removed
-            // refer to https://discord.com/channels/581875019861328007/684745859497590843/791207648619266060
         }
 
         public async Task Dedupe()
         {
-            if (!Enabled) return;
-            
-            _logHelper.Push("DEDUPE");
-
-            // var dt = GetElapsedMs(lastUpdate);
-            // _logHelper.Log($"{dt}ms since last dedupe");
-            // if (dt < DedupeIntervalMs)
-            // {
-            //     lastUpdate = DateTimeOffset.Now;
-            //     _logHelper.Pop($"SKIPPED");
-            //     
-            //     return;
-            // }
-            
-            var recentMessages = this.recentMessages.Where(m => GetElapsedMs(m) < RecentIntervalMs);
-            var socketMessages = recentMessages as SocketMessage[] ?? recentMessages.ToArray();
-            var content = socketMessages.Select(m => m.Content);
-
-            //todo: all of this needs to be made more efficient in terms of linq and collection operations
-            //todo: - use a set?
-            
-            _logHelper.Push("Recents:");
-            _logHelper.Log($"Total: {this.recentMessages.Count()}");
-            if (this.recentMessages.Count() == 0)
-            {
-                _logHelper.Pop();
-                _logHelper.Pop();
-                return;
-            }
-            _logHelper.Log($"Recent: {socketMessages.Count()}");
-            _logHelper.Pop();
+            var filteredMessages = _recentMessages.Where(m => GetElapsedMs(m) < RecentIntervalMs).ToArray();
 
             var deletedMessages = new List<SocketMessage>();
             
-            if (socketMessages.Count() > 0)
+            if (filteredMessages.Any())
             {
-                _logHelper.Push("Content:");
-                
-                foreach (var chatText in content)
-                {
-                    _logHelper.LogValue(chatText);
-                }
-                
-                _logHelper.Pop();
-                
-
                 //todo: check if there's a cleaner/linq way to compare every item to every other item 
-                for (var i = 0; i < socketMessages.Length; i++)
+                for (var i = 0; i < filteredMessages.Length; i++)
                 {
-                    var recent = socketMessages[i];
+                    var recent = filteredMessages[i];
 
-                    for (var j = i + 1; j < socketMessages.Length; j++)
+                    for (var j = i + 1; j < filteredMessages.Length; j++)
                     {
-                        var other = socketMessages[j];
+                        var other = filteredMessages[j];
 
                         if (IsDuplicate(recent, other))
                         {
                             bool wasDeleted = await DeleteMostRecent(recent, other);
 
+                            //todo in the case of 3 or more clients, do we need to know specifically which was deleted
                             if (wasDeleted)
                             {
                                 deletedMessages.Add(recent);
@@ -240,24 +170,12 @@ namespace Dalamud.DiscordBridge
                 }
             }
 
-            this.recentMessages = new List<SocketMessage>(recentMessages.Except(deletedMessages));
-            _logHelper.Log($"Deleted Count: {deletedMessages.Count()}");
-            _logHelper.Log($"Final Total: {this.recentMessages.Count()}");
-            
-            _logHelper.Pop();
+            _recentMessages = new List<SocketMessage>(filteredMessages.Except(deletedMessages));
         }
 
         #endregion
         
         #region Private Functions
-        
-        private static void LogDedupe(string message)
-        {
-            _logHelper.Log(message);
-            //PluginLog.LogDebug($"[DEDUPE] {message}");
-        }
-
-        private static readonly LogHelper _logHelper = new LogHelper("FILTER", m => { PluginLog.LogWarning(m);});
 
         private static long GetElapsedMs(DateTimeOffset timestamp)
         {
@@ -269,100 +187,48 @@ namespace Dalamud.DiscordBridge
             return GetElapsedMs(message.Timestamp);
         }
 
-        private static long DifferenceMs(DateTimeOffset left, DateTimeOffset right)
-        {
-            return GetElapsedMs(left) - GetElapsedMs(right);
-        }
-
         private async Task<bool> DeleteMostRecent(SocketMessage left, SocketMessage right)
         {
-            _logHelper.Push("MOST RECENT");
-            
-            _logHelper.Log($"left created {GetElapsedMs(left.CreatedAt)}ms ago");
-            _logHelper.Log($"right created {GetElapsedMs(right.CreatedAt)}ms ago");
-
             // delete recent if it's later than other (keep the older one)
             if (GetElapsedMs(left.CreatedAt) > GetElapsedMs(right.CreatedAt))
             {
-                _logHelper.Log("(DELETE LEFT)");
-                _logHelper.Pop();
                 return await TryDeleteAsync(left);
             }
             
-            _logHelper.Log("(DELETE RIGHT)");
-            _logHelper.Pop();
             return await TryDeleteAsync(right);
         }
 
         private static async Task<bool> TryDeleteAsync(SocketMessage message)
         {
-            _logHelper.Push("DELETE MESSAGE");
-            _logHelper.LogExpr(message.Author.Username);
-            _logHelper.LogExpr(message.Content);
-
-            if (!message.Author.IsWebhook)
-            {
-                _logHelper.Log("NOT WEBHOOK: Should only delete webhook messages");
-            }
-
             try
             {
                 await message.DeleteAsync();
-                
-                _logHelper.Pop("(SUCCESS)");
                 
                 return true;
             }
             catch (Discord.Net.HttpException)
             {
-                _logHelper.Log($"(MESSAGE NOT FOUND)");
-                
+                PluginLog.LogVerbose($"Message for deletion not found: {message.Id}");
             }
-            
-            _logHelper.Pop();
             
             return false;
         }
         
-        private bool IsDuplicate(SocketMessage recent, SocketMessage other)
+        private static bool IsDuplicate(SocketMessage left, SocketMessage right)
         {
-            _logHelper.Push("COMPARE");
-
-            bool sameUser = recent.Author.Username == other.Author.Username;
-            //sameUser = true;
-            //_logHelper.Log($"sameUser: {recent.Author.Username} //// {other.Author.Username}, {sameUser}");
-
-            //bool withinTime = Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp)) < ComparisonIntervalMs;
-            //_logHelper.Log($"withinTime: {Math.Abs(DifferenceMs(recent.Timestamp, other.Timestamp))}ms");
-
-            bool differentId = recent.Id != other.Id;
-
-            string leftText = GetText(recent.Content);
-            string rightText = GetText(other.Content);
-            _logHelper.LogExpr(leftText);
-            _logHelper.LogExpr(rightText);
-
-            var result = sameUser && differentId && (leftText == rightText);
-            _logHelper.Pop($"(RETURN {result})");
-            return result;
+            return IsDuplicate(left.Author.Username, left.Content, right.Author.Username, right.Content);
         }
 
-        private bool IsDuplicate(string leftDisplayName, string leftContent, string rightDisplayName, string rightContent)
+        private static bool IsDuplicate(string leftDisplayName, string leftContent, string rightDisplayName, string rightContent)
         {
-            _logHelper.Push("COMPARE (SIMPLE)");
-            
-            string leftChatText = GetText(leftContent);
-            string rightChatText = GetText(rightContent);
+            string leftChatText = GetChatText(leftContent);
+            string rightChatText = GetChatText(rightContent);
 
-            bool result = leftDisplayName == rightDisplayName &&
+            return leftDisplayName == rightDisplayName &&
                    leftChatText == rightChatText;
-
-            _logHelper.Pop($"(RETURN {result})");
-            
-            return result;
         }
 
-        private static string GetText(string recentContent)
+        private static string GetChatText(string recentContent)
         {
             var matches = ExtractChatText.Match(recentContent);
 
@@ -373,20 +239,18 @@ namespace Dalamud.DiscordBridge
         
         #region Private Data
 
+        private static readonly LogHelper LogHelper = new LogHelper("FILTER", m => { PluginLog.LogWarning(m);});
+
         private const long OutgoingFilterIntervalMs = 2000;
-        // private const long DedupeIntervalMs = 1000;
         private const long RecentIntervalMs = 10000;
-        // private const long ComparisonIntervalMs = 3000;
         
         private const string GroupPrefix = "prefix"; 
         private const string GroupSlug = "slug"; 
         private const string GroupChatText = "chatText"; 
         private static readonly Regex ExtractChatText = new Regex(@$"(?'{GroupPrefix}'.*)\*\*\[(?'{GroupSlug}'.+)\]\*\* (?'{GroupChatText}'.+)");
-        // (?'GroupPrefix'.*)\*?\*?\[(?'GroupSlug'.+)\]\*?\*? (?'GroupChatText'.+)
 
-        private DateTimeOffset lastUpdate = DateTimeOffset.Now;
-        
-        
+        private List<SocketMessage> _recentMessages = new();
+
         #endregion
     }
 }
