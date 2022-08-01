@@ -24,7 +24,7 @@ namespace Dalamud.DiscordBridge
 {
     public class DiscordHandler : IDisposable
     {
-        private readonly DuplicateFilter duplicateFilter = new DuplicateFilter();
+        private readonly DuplicateFilter duplicateFilter;
         
         private readonly DiscordSocketClient socketClient;
         private readonly SpecialCharsHandler specialChars;
@@ -110,6 +110,8 @@ namespace Dalamud.DiscordBridge
             });
             this.socketClient.Ready += SocketClientOnReady;
             this.socketClient.MessageReceived += SocketClientOnMessageReceived;
+            
+            duplicateFilter = new DuplicateFilter(socketClient);
         }
 
         public async Task Start()
@@ -140,20 +142,18 @@ namespace Dalamud.DiscordBridge
             PluginLog.Verbose("DiscordHandler START!!");
         }
 
-        private async Task SocketClientOnReady()
+        private Task SocketClientOnReady()
         {
             this.State = DiscordState.Ready;
-            await this.specialChars.TryFindEmote(this.socketClient);
+            this.specialChars.TryFindEmote(this.socketClient);
 
             PluginLog.Verbose("DiscordHandler READY!!");
+            
+            return Task.CompletedTask;
         }
 
         private async Task SocketClientOnMessageReceived(SocketMessage message)
         {
-            duplicateFilter.Add(message);
-            
-            await duplicateFilter.Dedupe();
-
             if (message.Author.IsBot || message.Author.IsWebhook)
                 return;
 
@@ -859,7 +859,7 @@ namespace Dalamud.DiscordBridge
                     continue;
                 }
 
-                if (duplicateFilter.IsRecentlySent(displayName, chatText: message))
+                if (duplicateFilter.CheckAlreadySent(socketChannel, slug: chatTypeText, displayName, chatText: message))
                 {
                     return;
                 }
@@ -871,6 +871,8 @@ namespace Dalamud.DiscordBridge
                     messageContent,username: displayName, avatarUrl: avatarUrl, 
                     allowedMentions: new AllowedMentions(AllowedMentionTypes.Roles | AllowedMentionTypes.Users | AllowedMentionTypes.None)
                 );
+                
+                PluginLog.LogVerbose($"Sent message:\n Channel: {socketChannel}\n Display Name: {displayName}\n Content: {messageContent}");
             }
         }
 

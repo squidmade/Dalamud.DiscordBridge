@@ -97,7 +97,7 @@ namespace Dalamud.DiscordBridge
 
                 this.plugin.Discord.Dispose();
                 this.plugin.Discord = new DiscordHandler(this.plugin);
-                this.plugin.Discord.Start();
+                _ = this.plugin.Discord.Start();
             }
         }
     }
