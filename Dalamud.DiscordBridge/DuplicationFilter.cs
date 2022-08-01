@@ -10,6 +10,7 @@ using Discord.WebSocket;
 using Dalamud.Logging;
 using Dalamud.Utility;
 using Discord;
+using JetBrains.Annotations;
 
 namespace Dalamud.DiscordBridge
 {
@@ -144,28 +145,20 @@ namespace Dalamud.DiscordBridge
 
             var deletedMessages = new List<SocketMessage>();
             
-            if (filteredMessages.Any())
+            //todo: check if there's a cleaner/linq way to compare every item to every other item 
+            for (var i = 0; i < filteredMessages.Length; i++)
             {
-                //todo: check if there's a cleaner/linq way to compare every item to every other item 
-                for (var i = 0; i < filteredMessages.Length; i++)
+                var recent = filteredMessages[i];
+
+                for (var j = i + 1; j < filteredMessages.Length; j++)
                 {
-                    var recent = filteredMessages[i];
+                    var other = filteredMessages[j];
 
-                    for (var j = i + 1; j < filteredMessages.Length; j++)
+                    if (IsDuplicate(recent, other))
                     {
-                        var other = filteredMessages[j];
+                        SocketMessage deletedMessage = await DeleteMostRecent(recent, other);
 
-                        if (IsDuplicate(recent, other))
-                        {
-                            bool wasDeleted = await DeleteMostRecent(recent, other);
-
-                            //todo in the case of 3 or more clients, do we need to know specifically which was deleted
-                            if (wasDeleted)
-                            {
-                                deletedMessages.Add(recent);
-                                deletedMessages.Add(other);
-                            }
-                        }
+                        deletedMessages.Add(deletedMessage);
                     }
                 }
             }
@@ -187,15 +180,15 @@ namespace Dalamud.DiscordBridge
             return GetElapsedMs(message.Timestamp);
         }
 
-        private async Task<bool> DeleteMostRecent(SocketMessage left, SocketMessage right)
+        private async Task<SocketMessage> DeleteMostRecent(SocketMessage left, SocketMessage right)
         {
-            // delete recent if it's later than other (keep the older one)
-            if (GetElapsedMs(left.CreatedAt) > GetElapsedMs(right.CreatedAt))
-            {
-                return await TryDeleteAsync(left);
-            }
+            bool leftIsNewer = GetElapsedMs(left.CreatedAt) > GetElapsedMs(right.CreatedAt);
             
-            return await TryDeleteAsync(right);
+            SocketMessage target = leftIsNewer ? left : right;
+            
+            _ = await TryDeleteAsync(target);
+            
+            return target;
         }
 
         private static async Task<bool> TryDeleteAsync(SocketMessage message)
