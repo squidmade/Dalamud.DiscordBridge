@@ -116,11 +116,11 @@ namespace Dalamud.DiscordBridge
         
         public bool IsRecentlySent(string displayName, string chatText)
         {
-            //todo this is wrong because msg.Content needs to be parsed to get the chatText
             // check for duplicates before sending
             // straight up copied from the previous bot, but I have no way to test this myself.
             var recentMsg = _recentMessages.FirstOrDefault(msg =>
-                IsDuplicate(msg.Author.Username, msg.Content, displayName, chatText));
+                msg.Author.Username == displayName &&
+                GetChatText(msg.Content) == chatText);
 
             //if (this.plugin.Config.DuplicateCheckMS > 0 && recentMsg != null)
             if (recentMsg != null)
@@ -215,15 +215,10 @@ namespace Dalamud.DiscordBridge
         
         private static bool IsDuplicate(SocketMessage left, SocketMessage right)
         {
-            return IsDuplicate(left.Author.Username, left.Content, right.Author.Username, right.Content);
-        }
+            string leftChatText = GetChatText(left.Content);
+            string rightChatText = GetChatText(right.Content);
 
-        private static bool IsDuplicate(string leftDisplayName, string leftContent, string rightDisplayName, string rightContent)
-        {
-            string leftChatText = GetChatText(leftContent);
-            string rightChatText = GetChatText(rightContent);
-
-            return leftDisplayName == rightDisplayName &&
+            return left.Author.Username == right.Author.Username &&
                    leftChatText == rightChatText;
         }
 
