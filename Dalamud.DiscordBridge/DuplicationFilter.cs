@@ -22,8 +22,6 @@ namespace Dalamud.DiscordBridge
         /// <param name="client">The socket client to monitor for duplicate messages.</param>
         public DuplicateFilter(DiscordSocketClient client)
         {
-            PluginLog.LogVerbose("[FILTER] Started!");
-            
             client.MessageReceived += OnMessageReceived;
         }
         
@@ -59,7 +57,7 @@ namespace Dalamud.DiscordBridge
             
             if (msgDiff < RecentIntervalMs)
             {
-                PluginLog.LogVerbose($"[FILTER]\n ALREADY SENT\n Filtered outgoing message.\n Threshold: {RecentIntervalMs}ms\n Diff: {msgDiff}ms\n Name: {displayName}\n Text: {chatText}");
+                PluginLog.LogVerbose($"[FILTER] Filtered outgoing message as duplicate. Threshold: {RecentIntervalMs}ms, Diff: {msgDiff}ms");
 
                 return true;
             }
@@ -143,8 +141,6 @@ namespace Dalamud.DiscordBridge
             {
                 await message.DeleteAsync();
                 //await message.AddReactionAsync(new Emoji("💥")); // useful for testing
-                
-                PluginLog.LogVerbose($"[FILTER]\n[DELETED]\n CHANNEL: {message.Channel}\n NAME: {message.Author.Username}\n CONTENT: {message.Content}");
                 
                 return true;
             }
