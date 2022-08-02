@@ -848,20 +848,24 @@ namespace Dalamud.DiscordBridge
                 {
                     PluginLog.Error("Could not find channel {0} for {1}", channelConfig.Key, chatType);
 
-                    var channelConfigs = this.plugin.Config.ChannelConfigs;
-                    channelConfigs.Remove(channelConfig.Key);
-                    this.plugin.Config.ChannelConfigs = channelConfigs;
+                    // There is a specific circumstance where an exception within SendChatEvent() will cause GetChannel()
+                    // to temporarily no result (not found) which then results in configurations for multiple channels
+                    // being cleared below.
 
-
-                    PluginLog.Log("Removing channel {0}'s config because it no longer exists or cannot be accessed.", channelConfig.Key);
-                    this.plugin.Config.Save();
+                    // Disabled the following to prevent losing channel configuration.
+                    // var channelConfigs = this.plugin.Config.ChannelConfigs;
+                    // channelConfigs.Remove(channelConfig.Key);
+                    // this.plugin.Config.ChannelConfigs = channelConfigs;
+                    //
+                    // PluginLog.Log("Removing channel {0}'s config because it no longer exists or cannot be accessed.", channelConfig.Key);
+                    // this.plugin.Config.Save();
                     
                     continue;
                 }
 
                 if (duplicateFilter.CheckAlreadySent(socketChannel, slug: chatTypeText, displayName, chatText: message))
                 {
-                    return;
+                    continue;
                 }
 
                 var webhookClient = await GetOrCreateWebhookClient(socketChannel);
@@ -871,8 +875,6 @@ namespace Dalamud.DiscordBridge
                     messageContent,username: displayName, avatarUrl: avatarUrl, 
                     allowedMentions: new AllowedMentions(AllowedMentionTypes.Roles | AllowedMentionTypes.Users | AllowedMentionTypes.None)
                 );
-                
-                PluginLog.LogVerbose($"Sent message:\n Channel: {socketChannel}\n Display Name: {displayName}\n Content: {messageContent}");
             }
         }
 
